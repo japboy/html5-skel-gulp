@@ -1,0 +1,8 @@
+{
+  "name": "{%= name %}",
+  "version": "{%= version %}",
+  "dependencies": {
+    "modernizr": ">=2.7.1",
+    "normalize-css": ">=3.0.1"
+  }
+}
