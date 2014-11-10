@@ -10,10 +10,13 @@ var buffer = require('vinyl-buffer');
 var coffeelint = require('gulp-coffeelint');
 var connect = require('gulp-connect');
 var csso = require('gulp-csso');
+var dotenv = require('dotenv');
+var envify = require('envify/custom');
 var gulp = require('gulp');
 var jade = require('gulp-jade');
 var jshint = require('gulp-jshint');
 var nib = require('nib');
+var rename = require('gulp-rename');
 var rimraf = require('rimraf');
 var sequence = require('run-sequence');
 var source = require('vinyl-source-stream');
@@ -38,6 +41,11 @@ gulp.task('clean', function (callback) {
 });
 
 
+gulp.task('copy', function () {
+  gulp.src(src('img', '**/*')).pipe(gulp.dest(dist('img')));
+});
+
+
 gulp.task('coffeelint', function () {
   // FIXME: rc must be RuleConstructor
   var rc = JSON.parse(fs.readFileSync('.coffeelintrc'));
@@ -48,7 +56,7 @@ gulp.task('coffeelint', function () {
 
 gulp.task('jshint', function () {
   gulp.src(src('js', '**/*.js'))
-    .pipe(jshint())
+    .pipe(jshint(JSON.parse(fs.readFileSync('.jshintrc'))))
     .pipe(jshint.reporter());
 });
 
@@ -58,7 +66,14 @@ gulp.task('browserify', [ 'coffeelint', 'jshint' ], function () {
     extensions: [ '.coffee', '.js', '.json' ],
     debug: true
   };
+
+  dotenv._getKeysAndValuesFromEnvFilePath(src('.env'));
+  dotenv._setEnvs();
+
   return browserify(options)
+    .transform(envify({
+      CONSUMER_KEY: process.env.CONSUMER_KEY
+    }))
     .bundle()
     .pipe(source('bundle.js'))
     .pipe(buffer())
@@ -90,12 +105,13 @@ gulp.task('stylus', function () {
     },
     use: nib()
   };
-  gulp.src(src('css', '**/!(_)*.styl'))
+  gulp.src(src('css', 'main.styl'))
     .pipe(stylus(options))
     .pipe(buffer())
     .pipe(sourcemaps.init({ loadMaps: true }))
     .pipe(csso())
     .pipe(sourcemaps.write())
+    .pipe(rename('bundle.css'))
     .pipe(gulp.dest(dist('css')))
     .pipe(connect.reload());
 });
@@ -103,7 +119,7 @@ gulp.task('stylus', function () {
 
 
 gulp.task('default', [ 'clean' ], function () {
-  sequence([ 'browserify' ], [ 'jade' ], [ 'stylus' ]);
+  sequence([ 'copy' ], [ 'browserify' ], [ 'jade' ], [ 'stylus' ]);
 });
 
 
@@ -115,7 +131,7 @@ gulp.task('listen', [ 'default' ], function () {
     root: dist()
   };
 
-  gulp.watch(src('js', '**/*'), [ 'browserify' ]);
+  gulp.watch([ src('js', '**/*.coffee'), src('js', '**/*.js') ], [ 'browserify' ]);
   gulp.watch(src('**/*.jade'), [ 'jade' ]);
   gulp.watch(src('css', '**/*.styl'), [ 'stylus' ]);
 

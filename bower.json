@@ -1,8 +1,6 @@
 {
-  "name": "{%= name %}",
-  "version": "{%= version %}",
+  "name": "html5-skel-gulp",
   "dependencies": {
-    "modernizr": ">=2.7.1",
-    "normalize-css": ">=3.0.1"
+    "normalize-css": "~3.0.2"
   }
 }
