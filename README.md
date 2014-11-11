@@ -30,15 +30,21 @@ npm install
 Bootstrap
 ---------
 
-Run this command below to start everything:
+Build everything from `src/` to `dist/`:
 
 ```
 gulp
 ```
 
-Local web server runs under:
+Launch a local web server and start watching changes with [LiveReload](http://livereload.com/):
 
-http://localhost:8080/
+```
+gulp listen
+```
+
+Access the local server:
+
+http://localhost:8001/
 
 License
 -------
