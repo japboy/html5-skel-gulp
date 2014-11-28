@@ -25,6 +25,7 @@ var rename = require('gulp-rename');
 var sequence = require('run-sequence');
 var source = require('vinyl-source-stream');
 var sourcemaps = require('gulp-sourcemaps');
+var spritesmith = require('gulp.spritesmith');
 var stylus = require('gulp-stylus');
 var uglify = require('gulp-uglify');
 
@@ -144,7 +145,7 @@ gulp.task('spritesmith', function () {
   return Q.all(promises);
 });
 
-gulp.task('stylus', [ 'spritesmith' ] function () {
+gulp.task('stylus', [ 'spritesmith' ], function () {
   var options = {
     sourcemap: {
       inline: true,
