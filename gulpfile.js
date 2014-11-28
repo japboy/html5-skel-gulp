@@ -1,3 +1,5 @@
+'use strict';
+
 /**
  * html5-skel-gulp
  */
@@ -10,20 +12,23 @@ var buffer = require('vinyl-buffer');
 var coffeelint = require('gulp-coffeelint');
 var connect = require('gulp-connect');
 var csso = require('gulp-csso');
+var data = require('gulp-data');
+var del = require('del');
 var dotenv = require('dotenv');
 var envify = require('envify/custom');
 var gulp = require('gulp');
 var jade = require('gulp-jade');
 var jshint = require('gulp-jshint');
+var jsonlint = require('gulp-jsonlint');
 var nib = require('nib');
 var rename = require('gulp-rename');
-var rimraf = require('rimraf');
 var sequence = require('run-sequence');
 var source = require('vinyl-source-stream');
 var sourcemaps = require('gulp-sourcemaps');
 var stylus = require('gulp-stylus');
 var uglify = require('gulp-uglify');
 
+var Q = require('q');
 
 function dir (base) {
   return function () {
@@ -32,48 +37,74 @@ function dir (base) {
   }
 }
 
+function excl (base) {
+  return function () {
+    var args = 1 <= arguments.length ? [].slice.call(arguments, 0) : [];
+    return path.join.apply(this, [].concat([ '!' + base ], args));
+  }
+}
+
 var src = dir(path.join('.', 'src'));
+var exclSrc = excl(path.join('.', 'src'));
 var dist = dir(path.join('.', 'dist'));
+var exclDist = excl(path.join('.', 'dist'));
 
 
-gulp.task('clean', function (callback) {
-  rimraf(dist(), callback);
+gulp.task('clean', function (cb) {
+  var targets = [
+    dist('*')
+  ];
+  del(targets, { force: true }, cb);
 });
 
 
 gulp.task('copy', function () {
-  gulp.src(src('img', '**/*')).pipe(gulp.dest(dist('img')));
+  var promises = [];
+  var dirs = [
+    { src: [ src('img', '*'), exclSrc('img', 'sprites') ], dest: dist('img') }
+  ];
+  dirs.forEach(function (dir, i) {
+    var dfr = Q.defer();
+    gulp.src(dir.src).pipe(gulp.dest(dir.dest)).on('end', dfr.resolve);
+    promises.push(dfr.promise);
+  });
+  return Q.all(promises);
+});
+
+
+gulp.task('jsonlint', function () {
+  return gulp.src(src('**/*.json'))
+    .pipe(jsonlint())
+    .pipe(jsonlint.reporter());
 });
 
 
 gulp.task('coffeelint', function () {
   // FIXME: rc must be RuleConstructor
   var rc = JSON.parse(fs.readFileSync('.coffeelintrc'));
-  gulp.src(src('js', '**/*.coffee'), [ rc ])
+  return gulp.src(src('js', '**/*.coffee'), [ rc ])
     .pipe(coffeelint())
     .pipe(coffeelint.reporter());
 });
 
 gulp.task('jshint', function () {
-  gulp.src(src('js', '**/*.js'))
+  return gulp.src(src('js', '**/*.js'))
     .pipe(jshint(JSON.parse(fs.readFileSync('.jshintrc'))))
     .pipe(jshint.reporter());
 });
 
-gulp.task('browserify', [ 'coffeelint', 'jshint' ], function () {
-  var options = {
-    entries: [ './src/js/main.js' ],
-    extensions: [ '.coffee', '.js', '.json' ],
-    debug: true
-  };
-
+gulp.task('browserify', [ 'coffeelint', 'jshint', 'jsonlint' ], function () {
   dotenv._getKeysAndValuesFromEnvFilePath(src('.env'));
   dotenv._setEnvs();
 
+  var options = {
+    entries: [ './src/js/main.js' ],
+    extensions: [ '.coffee', '.js', '.json' ]
+  };
+  if ('development' === process.env.NODE_ENV) options.debug = true;
+
   return browserify(options)
-    .transform(envify({
-      CONSUMER_KEY: process.env.CONSUMER_KEY
-    }))
+    .transform(envify(process.env))
     .bundle()
     .pipe(source('bundle.js'))
     .pipe(buffer())
@@ -86,18 +117,34 @@ gulp.task('browserify', [ 'coffeelint', 'jshint' ], function () {
 
 
 gulp.task('jade', function () {
-  var options = {
-    locals: JSON.parse(fs.readFileSync(src('meta.json'))),
-    pretty: true
-  };
-  gulp.src(src('**/!(_)*.jade'))
-    .pipe(jade(options))
+  return gulp.src(src('**/!(_)*.jade'))
+    .pipe(data(function (file, cb) {
+      fs.readFile(src('meta.json'), function (err, data) {
+        if (err) return cb(err);
+        cb(undefined, JSON.parse(data));
+      });
+    }))
+    .pipe(jade({ pretty: true }))
     .pipe(gulp.dest(dist()))
     .pipe(connect.reload());
 });
 
 
-gulp.task('stylus', function () {
+gulp.task('spritesmith', function () {
+  var img = Q.defer(), css = Q.defer(), promises = [ img.promise, css.promise ];
+  var sprite = gulp.src(src('img', 'sprites', '**/*'))
+    .pipe(spritesmith({
+      imgName: 'sprite.png',
+      cssName: '_sprite.styl',
+      imgPath: '../img/sprite.png',
+      algorithm: 'binary-tree'
+    }));
+  sprite.img.pipe(gulp.dest(dist('img'))).on('end', img.resolve);
+  sprite.css.pipe(gulp.dest(src('css'))).on('end', css.resolve);
+  return Q.all(promises);
+});
+
+gulp.task('stylus', [ 'spritesmith' ] function () {
   var options = {
     sourcemap: {
       inline: true,
@@ -105,7 +152,7 @@ gulp.task('stylus', function () {
     },
     use: nib()
   };
-  gulp.src(src('css', 'main.styl'))
+  return gulp.src(src('css', 'main.styl'))
     .pipe(stylus(options))
     .pipe(buffer())
     .pipe(sourcemaps.init({ loadMaps: true }))
@@ -117,13 +164,12 @@ gulp.task('stylus', function () {
 });
 
 
-
-gulp.task('default', [ 'clean' ], function () {
-  sequence([ 'copy' ], [ 'browserify' ], [ 'jade' ], [ 'stylus' ]);
+gulp.task('default', [ 'clean' ], function (cb) {
+  sequence([ 'copy', 'browserify', 'jade' ], 'stylus', cb);
 });
 
 
-gulp.task('listen', [ 'default' ], function () {
+gulp.task('listen', function () {
   var options = {
     host: '0.0.0.0',
     livereload: true,
@@ -131,9 +177,10 @@ gulp.task('listen', [ 'default' ], function () {
     root: dist()
   };
 
-  gulp.watch([ src('js', '**/*.coffee'), src('js', '**/*.js') ], [ 'browserify' ]);
-  gulp.watch(src('**/*.jade'), [ 'jade' ]);
-  gulp.watch(src('css', '**/*.styl'), [ 'stylus' ]);
+  gulp.watch(src('img', '**/*'), [ 'copy' ], { debounceDelay: 1000 });
+  gulp.watch([ src('js', '**/*.coffee'), src('js', '**/*.js') ], [ 'browserify' ], { debounceDelay: 1000 });
+  gulp.watch([ src('**/*.jade'), src('meta.json') ], [ 'jade' ], { debounceDelay: 1000 });
+  gulp.watch(src('css', '**/*.styl'), [ 'stylus' ], { debounceDelay: 1000 });
 
   connect.server(options);
 });
